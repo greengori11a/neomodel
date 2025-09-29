@@ -18,4 +18,21 @@ class VectorFilter(object):
         self.index_name = None 
         self.nodeSetLabel = None
         self.vector = candidate_vector
-        
+
+class FreeTextFilter(object):
+    """
+    Represents a CALL db.index.fulltext.query* neo function call within the OGM.
+    :param query_strng: The string you are finding the nearest 
+    :type query_string: str
+    :param freetext_attribute_name: The property name for the free text indexed property.
+    :type freetext_attribute_name: str
+    :param topk: Amount to nodes to return
+    :type topk: int
+
+    """
+    def __init__(self, query_string: str, freetext_attribute_name: str, topk: int):
+        self.query_string = query_string
+        self.freetext_attribute_name = freetext_attribute_name
+        self.index_name = None
+        self.nodeSetLabel = None
+        self.topk = topk
