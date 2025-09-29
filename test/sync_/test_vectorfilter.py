@@ -18,7 +18,7 @@ from neomodel.semantic_filters import VectorFilter
 
 
 @mark_sync_test
-def test_base_vectorfilter_async():
+def test_base_vectorfilter():
     """
     Tests that the vectorquery is run, node and score are returned.
     """
