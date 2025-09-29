@@ -1093,7 +1093,7 @@ class QueryBuilder:
 
         if self._ast.limit and not self._ast.is_count:
             query += f" LIMIT {self._ast.limit}"
-        print(query)
+
         return query
 
     def _count(self) -> int:
