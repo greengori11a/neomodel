@@ -479,7 +479,7 @@ class AsyncQueryBuilder:
         ):
             if self.node_set._fulltext_query:
                 self.build_fulltext_query(
-                    self.node_set._vector_query, self.node_set.source
+                    self.node_set._fulltext_query, self.node_set.source
                 )
 
         await self.build_source(self.node_set)
@@ -595,7 +595,7 @@ class AsyncQueryBuilder:
         except AttributeError:
             raise
 
-        if not attribute.vector_index:
+        if not attribute.fulltext_index:
             raise AttributeError(
                 f"Attribute {fulltextquery.fulltext_attribute_name} is not declared with a full text index."
             )
@@ -1015,7 +1015,7 @@ class AsyncQueryBuilder:
 
         if self._ast.fulltext_index_query:
             query += f"""CALL () {{
-                CALL db.index.fulltext.queryNodes("{self._ast.fulltext_index_query.index_name}", {self._ast.fulltext_index_query.query_string})
+                CALL db.index.fulltext.queryNodes("{self._ast.fulltext_index_query.index_name}", "{self._ast.fulltext_index_query.query_string}")
                 YIELD node AS {self._ast.fulltext_index_query.nodeSetLabel}, score
                 RETURN {self._ast.fulltext_index_query.nodeSetLabel}, score LIMIT {self._ast.fulltext_index_query.topk}
                 }}
