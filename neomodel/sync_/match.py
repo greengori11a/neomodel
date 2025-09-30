@@ -466,14 +466,14 @@ class QueryBuilder:
 
         if (
             isinstance(self.node_set, NodeSet)
-            and hasattr(self.node_set, "_vector_query")
+            and hasattr(self.node_set, "vector_query")
             and self.node_set.vector_query
         ):
             self.build_vector_query(self.node_set.vector_query, self.node_set.source)
 
         if (
             isinstance(self.node_set, NodeSet)
-            and hasattr(self.node_set, "_fulltext_query")
+            and hasattr(self.node_set, "fulltext_query")
             and self.node_set.fulltext_query
         ):
             self.build_fulltext_query(
@@ -594,7 +594,7 @@ class QueryBuilder:
         except AttributeError as e:
             raise AttributeError(
                 f"Atribute '{fulltextquery.fulltext_attribute_name}' not found on '{type(source).__name__}'."
-            )
+            ) from e
 
         if not attribute.fulltext_index:
             raise AttributeError(
@@ -1149,7 +1149,6 @@ class QueryBuilder:
 
         if self._ast.limit and not self._ast.is_count:
             query += f" LIMIT {self._ast.limit}"
-
         return query
 
     def _count(self) -> int:
