@@ -254,15 +254,17 @@ async def test_fulltextfiler_nonexistent_attribute():
     await adb.install_labels(TestNodeWithFT)
 
     with pytest.raises(
-            AttributeError, match="Atribute 'nonexistent_fulltext' not found"
-        ):
+        AttributeError, match="Atribute 'nonexistent_fulltext' not found"
+    ):
         nodeset = TestNodeWithFT.nodes.filter(
-                fulltext_filter=FulltextFilter(
-                    topk=1, 
-                    fulltext_attribute_name="nonexistent_fulltext",
-                    query_string="something")
-                )
+            fulltext_filter=FulltextFilter(
+                topk=1,
+                fulltext_attribute_name="nonexistent_fulltext",
+                query_string="something",
+            )
+        )
         await nodeset.all()
+
 
 @mark_async_test
 async def test_fulltextfiler_no_fulltext_index():
@@ -272,17 +274,14 @@ async def test_fulltextfiler_no_fulltext_index():
 
     class TestNodeWithoutFT(AsyncStructuredNode):
         name = StringProperty()
-        fulltext = StringProperty() # No fulltext_index
+        fulltext = StringProperty()  # No fulltext_index
 
     await adb.install_labels(TestNodeWithoutFT)
 
-    with pytest.raises(
-            AttributeError, match="is not declared with a full text index"
-        ):
+    with pytest.raises(AttributeError, match="is not declared with a full text index"):
         nodeset = TestNodeWithoutFT.nodes.filter(
-                fulltext_filter=FulltextFilter(
-                    topk=1, 
-                    fulltext_attribute_name="fulltext",
-                    query_string="something")
-                )
+            fulltext_filter=FulltextFilter(
+                topk=1, fulltext_attribute_name="fulltext", query_string="something"
+            )
+        )
         await nodeset.all()

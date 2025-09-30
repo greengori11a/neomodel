@@ -36,9 +36,7 @@ class FulltextFilter(object):
 
     """
 
-    def __init__(
-            self, query_string: str, fulltext_attribute_name: str, topk: int
-    ):
+    def __init__(self, query_string: str, fulltext_attribute_name: str, topk: int):
         self.query_string = query_string
         self.fulltext_attribute_name = fulltext_attribute_name
         self.index_name = None

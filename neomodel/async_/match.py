@@ -466,19 +466,21 @@ class AsyncQueryBuilder:
             for relation in self.node_set.relations_to_fetch:
                 self.build_traversal_from_path(relation, self.node_set.source)
 
-        if ( 
-            isinstance(self.node_set, AsyncNodeSet) 
-            and hasattr(self.node_set, "vector_query") 
+        if (
+            isinstance(self.node_set, AsyncNodeSet)
+            and hasattr(self.node_set, "vector_query")
             and self.node_set.vector_query
-            ):
+        ):
             self.build_vector_query(self.node_set.vector_query, self.node_set.source)
 
         if (
-            isinstance(self.node_set, AsyncNodeSet) 
+            isinstance(self.node_set, AsyncNodeSet)
             and hasattr(self.node_set, "fulltext_query")
             and self.node_set.fulltext_query
-            ):
-            self.build_fulltext_query(self.node_set.fulltext_query, self.node_set.source)
+        ):
+            self.build_fulltext_query(
+                self.node_set.fulltext_query, self.node_set.source
+            )
 
         await self.build_source(self.node_set)
 
@@ -570,7 +572,7 @@ class AsyncQueryBuilder:
         except AttributeError as e:
             raise AttributeError(
                 f"Attribute '{vectorfilter.vector_attribute_name}' not found on '{type(source).__name__}'."
-            ) from e 
+            ) from e
 
         if not attribute.vector_index:
             raise AttributeError(
@@ -1615,17 +1617,17 @@ class AsyncNodeSet(AsyncBaseSet):
 
             if (
                 kwargs.get("vector_filter")
-                and isinstance(kwargs["vector_filter"], VectorFilter) 
+                and isinstance(kwargs["vector_filter"], VectorFilter)
                 and not self.vector_query
             ):
                 self.vector_query = kwargs.pop("vector_filter")
 
             if (
                 kwargs.get("fulltext_filter")
-                and isinstance(kwargs["fulltext_filter"], FulltextFilter) 
+                and isinstance(kwargs["fulltext_filter"], FulltextFilter)
                 and not self.fulltext_query
-                ):
-                    self.fulltext_query = kwargs.pop("fulltext_filter")
+            ):
+                self.fulltext_query = kwargs.pop("fulltext_filter")
 
             self.q_filters = Q(self.q_filters & Q(*new_args, **kwargs))
 
