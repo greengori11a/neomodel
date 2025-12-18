@@ -1015,11 +1015,11 @@ class AsyncQueryBuilder:
                 YIELD node AS {self._ast.vector_index_query.node_set_label}, score """
 
             if self._ast.vector_index_query.threshold:
-                query += """
+                query += f"""
                 WHERE score >= {self._ast.vector_index_query.threshold}
                 """
 
-            query += """
+            query += f"""
                 RETURN {self._ast.vector_index_query.node_set_label}, score 
             }}"""
 
@@ -1032,11 +1032,11 @@ class AsyncQueryBuilder:
                 YIELD node AS {self._ast.fulltext_index_query.node_set_label}, score"""
 
             if self._ast.fulltext_index_query.threshold:
-                query += """
+                query += f"""
                 WHERE score >= {self._ast.fulltext_index_query.threshold}
                 """
 
-            query += """
+            query += f"""
                 RETURN {self._ast.fulltext_index_query.node_set_label}, score LIMIT {self._ast.fulltext_index_query.topk}
             }}
                 """
