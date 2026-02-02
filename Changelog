@@ -1,5 +1,6 @@
 Version 6.1.0 2026-01
 * Add new exists operator in filter()
+* Add allow_reload to config to allow node redefinition in hot reload environments for development purposes
 
 Version 6.0.1 2025-12
 * Make async iterator fully async, like : async for node in MyNodeClass.nodes
