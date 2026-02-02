@@ -12,6 +12,7 @@ from neo4j.graph import Node
 
 from neomodel.async_.database import adb
 from neomodel.async_.property_manager import AsyncPropertyManager
+from neomodel.config import get_config
 from neomodel.constants import STREAMING_WARNING
 from neomodel.exceptions import DoesNotExist, NodeClassAlreadyDefined
 from neomodel.hooks import hooks
@@ -106,8 +107,8 @@ def build_class_registry(cls: Any) -> None:
     ]
     possible_label_combinations.append(base_label_set)
 
-    # Check if class allows reloading
-    allow_reload = getattr(cls, "__allow_reload__", False)
+    # Check if config allows reloading
+    allow_reload = get_config().allow_reload
 
     for label_set in possible_label_combinations:
         if not hasattr(cls, "__target_databases__"):

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from neo4j.graph import Node
 
+from neomodel.config import get_config
 from neomodel.constants import STREAMING_WARNING
 from neomodel.exceptions import DoesNotExist, NodeClassAlreadyDefined
 from neomodel.hooks import hooks
@@ -48,19 +49,15 @@ class NodeMeta(type):
                     "Property name 'deleted' is not allowed as it conflicts with neomodel internals."
                 )
             elif "id" in namespace:
-                raise ValueError(
-                    """
+                raise ValueError("""
                         Property name 'id' is not allowed as it conflicts with neomodel internals.
                         Consider using 'uid' or 'identifier' as id is also a Neo4j internal.
-                    """
-                )
+                    """)
             elif "element_id" in namespace:
-                raise ValueError(
-                    """
+                raise ValueError("""
                         Property name 'element_id' is not allowed as it conflicts with neomodel internals.
                         Consider using 'uid' or 'identifier' as element_id is also a Neo4j internal.
-                    """
-                )
+                    """)
             for key, value in (
                 (x, y) for x, y in namespace.items() if isinstance(y, Property)
             ):
@@ -106,8 +103,8 @@ def build_class_registry(cls: Any) -> None:
     ]
     possible_label_combinations.append(base_label_set)
 
-    # Check if class allows reloading
-    allow_reload = getattr(cls, "__allow_reload__", False)
+    # Check if config allows reloading
+    allow_reload = get_config().allow_reload
 
     for label_set in possible_label_combinations:
         if not hasattr(cls, "__target_databases__"):

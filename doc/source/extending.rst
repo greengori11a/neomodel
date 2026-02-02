@@ -59,22 +59,27 @@ By default, neomodel prevents class redefinition to ensure the integrity of the 
 However, in development environments with hot-reloading (like Streamlit or Django's development server),
 this behavior can be problematic as classes get redefined on every code change.
 
-To support hot-reload workflows, you can set the ``__allow_reload__`` property to ``True``:
+To support hot-reload workflows, you can enable the ``allow_reload`` global config parameter:
 
 .. code-block:: python
 
-    class Component(StructuredNode):
-        __allow_reload__ = True
-        uid = UniqueIdProperty()
-        name = StringProperty(unique_index=True)
+    from neomodel import config
+    config.ALLOW_RELOAD = True
 
-When ``__allow_reload__`` is enabled:
+Or using the modern config API:
+
+.. code-block:: python
+
+    from neomodel.config import get_config
+    get_config().allow_reload = True
+
+When ``allow_reload`` is enabled:
 
 * Class redefinitions will issue a ``UserWarning`` instead of raising ``NodeClassAlreadyDefined``
 * The class registry will be updated with the new definition
 * This works for both standard classes and database-specific classes (with ``__target_databases__``)
 
-.. warning:: Only use ``__allow_reload__ = True`` in development environments. In production, the default behavior of raising ``NodeClassAlreadyDefined`` helps catch unintentional class redefinitions that could lead to subtle bugs.
+.. warning:: Only enable ``allow_reload`` in development environments. In production, the default behavior of raising ``NodeClassAlreadyDefined`` helps catch unintentional class redefinitions that could lead to subtle bugs.
 
 Example with Streamlit:
 
@@ -84,9 +89,9 @@ Example with Streamlit:
     from neomodel import StructuredNode, StringProperty, config
 
     config.DATABASE_URL = 'bolt://neo4j:neo4j@localhost:7687'
+    config.ALLOW_RELOAD = True  # Allows Streamlit page reloads
 
     class User(StructuredNode):
-        __allow_reload__ = True  # Allows Streamlit page reloads
         name = StringProperty(unique_index=True)
         email = StringProperty()
 
