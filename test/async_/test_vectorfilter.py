@@ -49,6 +49,43 @@ async def test_base_vectorfilter_async():
 
 
 @mark_async_test
+async def test_vectorfilter_thresholding():
+    """
+    Tests that the vector query is run, and only node above threshold returns.
+    """
+    # Vector Indexes only exist from 5.13 onwards
+    if not await adb.version_is_higher_than("5.13"):
+        pytest.skip("Vector Index not Generally Available in Neo4j.")
+
+    class someNodeThresh(AsyncStructuredNode):
+        name = StringProperty()
+        vector = ArrayProperty(
+            base_property=FloatProperty(), vector_index=VectorIndex(2, "cosine")
+        )
+
+    await adb.install_labels(someNodeThresh)
+
+    john = await someNodeThresh(name="John", vector=[float(0.5), float(0.5)]).save()
+    fred = await someNodeThresh(name="Fred", vector=[float(1.0), float(0.0)]).save()
+
+    vectorsearchFilterThreshold = someNodeThresh.nodes.filter(
+        vector_filter=VectorFilter(
+            topk=3,
+            vector_attribute_name="vector",
+            candidate_vector=[0.25, 0],
+            threshold=0.8,
+        ),
+        name="John",
+    )
+    result = await vectorsearchFilterThreshold.all()
+
+    assert len(result) == 1
+    assert all(isinstance(x[0], someNodeThresh) for x in result)
+    assert result[0][0].name == "John"
+    assert all(x[1] >= 0.8 for x in result)
+
+
+@mark_async_test
 async def test_vectorfilter_with_node_propertyfilter():
     """
     Tests that the vector query is run, and "john" node is the only node returned.
@@ -273,6 +310,52 @@ async def test_vectorfilter_no_vector_index():
         nodeset = TestNodeWithoutVector.nodes.filter(
             vector_filter=VectorFilter(
                 topk=3, vector_attribute_name="vector", candidate_vector=[0.25, 0]
+            )
+        )
+        await nodeset.all()  # This triggers the build_vector_query call
+
+
+@mark_async_test
+async def test_vectorfilter_invalid_threshold_type():
+    """
+    Tests that ValueError is raised when threshold is not a float or None.
+    """
+    # Vector Indexes only exist from 5.13 onwards
+    if not await adb.version_is_higher_than("5.13"):
+        pytest.skip("Vector Index not Generally Available in Neo4j.")
+
+    class TestNodeWithVectorInvalidType(AsyncStructuredNode):
+        name = StringProperty()
+        vector = ArrayProperty(
+            base_property=FloatProperty(), vector_index=VectorIndex(2, "cosine")
+        )
+
+    await adb.install_labels(TestNodeWithVectorInvalidType)
+
+    # Test with string threshold (invalid type)
+    with pytest.raises(
+        ValueError, match="Vector Filter Threshold must be a float or None."
+    ):
+        nodeset = TestNodeWithVectorInvalidType.nodes.filter(
+            vector_filter=VectorFilter(
+                topk=3,
+                vector_attribute_name="vector",
+                candidate_vector=[0.25, 0],
+                threshold="0.8",  # Invalid: string instead of float
+            )
+        )
+        await nodeset.all()  # This triggers the build_vector_query call
+
+    # Test with integer threshold (invalid type)
+    with pytest.raises(
+        ValueError, match="Vector Filter Threshold must be a float or None."
+    ):
+        nodeset = TestNodeWithVectorInvalidType.nodes.filter(
+            vector_filter=VectorFilter(
+                topk=3,
+                vector_attribute_name="vector",
+                candidate_vector=[0.25, 0],
+                threshold=1,  # Invalid: int instead of float
             )
         )
         await nodeset.all()  # This triggers the build_vector_query call

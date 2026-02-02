@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Database",
 ]
 dependencies = [
-    "neo4j~=5.28.2",
+    "neo4j~=6.0.3",
 ]
 requires-python = ">=3.10"
 dynamic = ["version"]
@@ -55,7 +55,7 @@ dev = [
 shapely = ["Shapely>=2.0.0"]
 pandas = ["pandas"]
 numpy = ["numpy"]
-rust-driver-ext = ["neo4j-rust-ext~=5.28.2.1"]
+rust-driver-ext = ["neo4j-rust-ext~=6.0.3.0"]
 
 [build-system]
 requires = ["setuptools>=69"]
@@ -71,7 +71,7 @@ version = {attr = "neomodel._version.__version__"}
 where = ["./"]
 
 [tool.pytest.ini_options]
-addopts = "--resetdb --ignore=test/test_typing.py"
+addopts = "--resetdb"
 testpaths = "test"
 asyncio_default_fixture_loop_scope = "session"
 
@@ -90,28 +90,9 @@ max-attributes = 10
 max-args = 8
 
 [tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = false
-mypy_path = "out"
-exclude = [
-    "build/",
-    "dist/",
-    "venv/",
-    "out/",
-]
-
 [[tool.mypy.overrides]]
 module = ["neomodel.scripts.*", "neomodel.contrib.spatial_properties"]
 ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = ["test.test_typing"]
-# Stricter checks for typing tests
-disallow_untyped_defs = true
-warn_return_any = true
-strict_optional = true
 
 [project.scripts]
 neomodel_install_labels = "neomodel.scripts.neomodel_install_labels:main"

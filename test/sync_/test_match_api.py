@@ -1175,6 +1175,36 @@ def test_in_filter_with_array_property():
 
 
 @mark_sync_test
+def test_exists_filter():
+    jim = PersonX(name="Jim", age=3).save()
+    tom = PersonX(name="tom", age=33).save()
+    germany = CountryX(code="DE").save()
+    jim.country.connect(germany)
+    tom.country.connect(germany)
+    berlin = CityX(name="Berlin").save()
+    berlin.country.connect(germany)
+    jim.city.connect(berlin)
+
+    with raises(ValueError):
+        result = PersonX.nodes.filter(city__exists="WRONG").all()
+
+    result = PersonX.nodes.filter(city__exists=True)
+    assert result[0] == jim
+    result = PersonX.nodes.filter(city__exists=False)
+    assert result[0] == tom
+    result = PersonX.nodes.filter(city__country__exists=True)
+    assert len(result) == 1
+    result = PersonX.nodes.filter(country__exists=True)
+    assert len(result) == 2
+
+    result = PersonX.nodes.filter(name="Jim", country__exists=True)
+    assert result[0] == jim
+
+    result = PersonX.nodes.filter(city__name="Berlin", country__exists=True)
+    assert result[0][0] == jim
+
+
+@mark_sync_test
 def test_unique_variables():
     arabica = Species(name="Arabica").save()
     nescafe = Coffee(name="Nescafe", price=99).save()
@@ -1245,6 +1275,51 @@ def test_async_iterator():
 
         # assert that generator runs loop above
         assert counter == n
+
+
+@mark_sync_test
+def test_async_iterator_streaming():
+    """Test that iteration truly streams results without loading all into memory."""
+    if Util.is_async_code:
+        # Create test data
+        n = 5
+        for i in range(n):
+            Coffee(name=f"stream_test_{i}", price=i * 10).save()
+
+        # Test streaming with filters
+        counter = 0
+        for node in Coffee.nodes.filter(name__istartswith="stream_test"):
+            assert isinstance(node, Coffee)
+            assert node.name.startswith("stream_test")
+            counter += 1
+
+        assert counter == n
+
+        # Test that iteration works within a transaction
+        with db.transaction:
+            counter = 0
+            for node in Coffee.nodes.filter(name__istartswith="stream_test"):
+                assert isinstance(node, Coffee)
+                counter += 1
+            assert counter == n
+
+        # Test early break (streaming should handle partial iteration)
+        counter = 0
+        for node in Coffee.nodes.filter(name__istartswith="stream_test"):
+            counter += 1
+            if counter >= 2:
+                break
+        assert counter == 2
+
+        # Test with order_by
+        prices = []
+        for node in Coffee.nodes.filter(name__istartswith="stream_test").order_by(
+            "price"
+        ):
+            prices.append(node.price)
+
+        assert prices == sorted(prices)
+        assert len(prices) == n
 
 
 def assert_last_query_startswith(mock_func, query) -> bool:

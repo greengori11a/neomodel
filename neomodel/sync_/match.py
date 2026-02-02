@@ -4,6 +4,7 @@ import string
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional, Union
 
+from neomodel._async_compat.util import Util
 from neomodel.exceptions import MultipleNodesReturned
 from neomodel.match_q import Q, QBase
 from neomodel.properties import AliasProperty, ArrayProperty, Property
@@ -13,7 +14,7 @@ from neomodel.sync_.database import db
 from neomodel.sync_.node import StructuredNode
 from neomodel.sync_.relationship import StructuredRel
 from neomodel.typing import Subquery, Transformation
-from neomodel.util import RelationshipDirection
+from neomodel.util import RelationshipDirection, deprecated
 
 CYPHER_ACTIONS_WITH_SIDE_EFFECT_EXPR = re.compile(r"(?i:MERGE|CREATE|DELETE|DETACH)")
 
@@ -159,6 +160,7 @@ _SPECIAL_OPERATOR_INSENSITIVE = "(?i)"
 _SPECIAL_OPERATOR_ISNULL = "IS NULL"
 _SPECIAL_OPERATOR_ISNOTNULL = "IS NOT NULL"
 _SPECIAL_OPERATOR_REGEX = "=~"
+_SPECIAL_OPERATOR_EXISTS = "EXISTS"
 
 _UNARY_OPERATORS = (_SPECIAL_OPERATOR_ISNULL, _SPECIAL_OPERATOR_ISNOTNULL)
 
@@ -195,6 +197,7 @@ OPERATOR_TABLE = {
     "isnull": _SPECIAL_OPERATOR_ISNULL,
     "regex": _SPECIAL_OPERATOR_REGEX,
     "exact": "=",
+    "exists": "EXISTS",
 }
 # add all regex operators
 OPERATOR_TABLE.update(_REGEX_OPERATOR_TABLE)
@@ -238,6 +241,13 @@ def _handle_special_operators(
             raise ValueError(f"Value must be a bool for isnull operation on {key}")
         operator = "IS NULL" if value else "IS NOT NULL"
         deflated_value = None
+    elif operator == _SPECIAL_OPERATOR_EXISTS:
+        if not isinstance(value, bool):
+            raise ValueError(f"Value must be a bool for exists operation on {key}")
+        operator = (
+            f"NOT {_SPECIAL_OPERATOR_EXISTS}" if not value else _SPECIAL_OPERATOR_EXISTS
+        )
+        deflated_value = value
     elif operator in _REGEX_OPERATOR_TABLE.values():
         deflated_value = property_obj.deflate(value)
         if not isinstance(deflated_value, str):
@@ -304,6 +314,7 @@ def _process_filter_key(
         prop,
     ) = _initialize_filter_args_variables(cls, key)
 
+    hop_name = None
     for part in re.split(path_split_regex, key):
         defined_props = current_class.defined_properties(rels=True)
         # update defined props dictionary with relationship properties if
@@ -317,6 +328,7 @@ def _process_filter_key(
                 defined_props[part].lookup_node_class()
                 current_class = defined_props[part].definition["node_class"]
                 current_rel_model = defined_props[part].definition["model"]
+                hop_name = part
         elif part in OPERATOR_TABLE:
             operator = OPERATOR_TABLE[part]
             prop, _ = prop.rsplit("__", 1)
@@ -329,7 +341,11 @@ def _process_filter_key(
 
     if leaf_prop is None:
         raise ValueError(f"Badly formed filter, no property found in {key}")
-    if is_rel_property and current_rel_model:
+
+    if hop_name == leaf_prop:
+        # Path ended on a hop, not a property
+        property_obj = None
+    elif is_rel_property and current_rel_model:
         property_obj = getattr(current_rel_model, leaf_prop)
     else:
         property_obj = getattr(current_class, leaf_prop)
@@ -384,6 +400,71 @@ def process_has_args(
             raise ValueError("Expecting True / False / NodeSet got: " + repr(value))
 
     return match, dont_match
+
+
+def generate_traversal_from_path(
+    relation: "Path",
+    source_class: Any,
+    create_ids: bool = False,
+    node_id_generator=None,
+    rel_id_generator=None,
+    namespace: str | None = None,
+):
+    """
+    Generator function to construct a cypher traversal from the given path.
+    """
+    path: str = relation.value
+    stmt: str = ""
+    source_class_iterator = source_class
+    parts = re.split(path_split_regex, path)
+    rel_iterator: str = ""
+    for index, part in enumerate(parts):
+        relationship = getattr(source_class_iterator, part)
+        if rel_iterator:
+            rel_iterator += "__"
+        rel_iterator += part
+        # build source
+        if "node_class" not in relationship.definition:
+            relationship.lookup_node_class()
+        lhs_name = None
+        if not stmt:
+            lhs_label = source_class_iterator.__label__
+            lhs_name = lhs_label.lower()
+            if create_ids and not namespace:
+                lhs_ident = f"{lhs_name}:{lhs_label}"
+            else:
+                lhs_ident = lhs_name
+        else:
+            lhs_ident = stmt
+
+        rel_ident = None
+        rhs_name = None
+        rhs_label = relationship.definition["node_class"].__label__
+        if create_ids:
+            rel_ident = rel_id_generator()
+            if relation.relation_filtering:
+                rhs_name = rel_ident
+                rhs_ident = f":{rhs_label}"
+            else:
+                if index + 1 == len(parts) and relation.alias:
+                    # If an alias is defined, use it to store the last hop in the path
+                    rhs_name = relation.alias
+                else:
+                    rhs_name = f"{rhs_label.lower()}_{rel_iterator}"
+                    rhs_name = node_id_generator(rhs_name, rel_iterator)
+                rhs_ident = f"{rhs_name}:{rhs_label}"
+        else:
+            rhs_ident = f":{rhs_label}"
+
+        stmt = _rel_helper(
+            lhs=lhs_ident,
+            rhs=rhs_ident,
+            ident=rel_ident,
+            direction=relationship.definition["direction"],
+            relation_type=relationship.definition["relation_type"],
+        )
+        yield stmt, lhs_name, rhs_name, rel_ident, part, source_class_iterator
+        source_class_iterator = relationship.definition["node_class"]
 
 
 class QueryAST:
@@ -575,6 +656,9 @@ class QueryBuilder:
                 f"Attribute {vector_filter.vector_attribute_name} is not declared with a vector index."
             )
 
+        if type(vector_filter.threshold) not in [float, type(None)]:
+            raise ValueError("Vector Filter Threshold must be a float or None.")
+
         vector_filter.index_name = f"vector_index_{source_class.__label__}_{vector_filter.vector_attribute_name}"
         vector_filter.node_set_label = source_class.__label__.lower()
 
@@ -601,6 +685,9 @@ class QueryBuilder:
             raise AttributeError(
                 f"Attribute {full_text_filter.fulltext_attribute_name} is not declared with a full text index."
             )
+
+        if type(full_text_filter.threshold) not in [float, type(None)]:
+            raise ValueError("Full Text Filter Threshold must be a float or None.")
 
         full_text_filter.index_name = f"fulltext_index_{source_class.__label__}_{full_text_filter.fulltext_attribute_name}"
         full_text_filter.node_set_label = source_class.__label__.lower()
@@ -648,54 +735,27 @@ class QueryBuilder:
     def build_traversal_from_path(
         self, relation: "Path", source_class: Any
     ) -> tuple[str, Any]:
-        path: str = relation.value
-        stmt: str = ""
-        source_class_iterator = source_class
-        parts = re.split(path_split_regex, path)
         subgraph = self._ast.subgraph
-        rel_iterator: str = ""
-        already_present = False
-        existing_rhs_name = ""
-        for index, part in enumerate(parts):
+        generator = generate_traversal_from_path(
+            relation,
+            source_class,
+            True,
+            self.create_node_identifier,
+            self.create_relation_identifier,
+            self._subquery_namespace,
+        )
+        for index, items in enumerate(generator):
+            stmt, lhs_name, rhs_name, rel_ident, part, source_class_iterator = items
             relationship = getattr(source_class_iterator, part)
-            if rel_iterator:
-                rel_iterator += "__"
-            rel_iterator += part
-            # build source
-            if "node_class" not in relationship.definition:
-                relationship.lookup_node_class()
-            if not stmt:
-                lhs_label = source_class_iterator.__label__
-                lhs_name = lhs_label.lower()
-                lhs_ident = f"{lhs_name}:{lhs_label}"
-                if not index:
-                    # This is the first one, we make sure that 'return'
-                    # contains the primary node so _contains() works
-                    # as usual
-                    self._ast.return_clause = lhs_name
-                    if self._subquery_namespace:
-                        # Don't include label in identifier if we are in a subquery
-                        lhs_ident = lhs_name
-                elif relation.include_nodes_in_return:
-                    self._additional_return(lhs_name)
-            else:
-                lhs_ident = stmt
+
+            if not index:
+                # This is the first one, we make sure that 'return'
+                # contains the primary node so _contains() works
+                # as usual
+                self._ast.return_clause = lhs_name
+                self._additional_return(lhs_name)
 
             already_present = part in subgraph
-            rel_ident = self.create_relation_identifier()
-            rhs_label = relationship.definition["node_class"].__label__
-            if relation.relation_filtering:
-                rhs_name = rel_ident
-                rhs_ident = f":{rhs_label}"
-            else:
-                if index + 1 == len(parts) and relation.alias:
-                    # If an alias is defined, use it to store the last hop in the path
-                    rhs_name = relation.alias
-                else:
-                    rhs_name = f"{rhs_label.lower()}_{rel_iterator}"
-                    rhs_name = self.create_node_identifier(rhs_name, rel_iterator)
-                rhs_ident = f"{rhs_name}:{rhs_label}"
-
             if relation.include_nodes_in_return and not already_present:
                 self._additional_return(rhs_name)
 
@@ -716,14 +776,6 @@ class QueryBuilder:
                 ]
             if relation.include_rels_in_return and not already_present:
                 self._additional_return(rel_ident)
-            stmt = _rel_helper(
-                lhs=lhs_ident,
-                rhs=rhs_ident,
-                ident=rel_ident,
-                direction=relationship.definition["direction"],
-                relation_type=relationship.definition["relation_type"],
-            )
-            source_class_iterator = relationship.definition["node_class"]
             subgraph = subgraph[part]["children"]
 
         if not already_present:
@@ -831,6 +883,11 @@ class QueryBuilder:
         if operator in _UNARY_OPERATORS:
             # unary operators do not have a parameter
             statement = f"{ident}.{prop} {operator}"
+        elif _SPECIAL_OPERATOR_EXISTS in operator:
+            statement = list(
+                generate_traversal_from_path(Path(prop), self.node_set.source)
+            )[-1][0]
+            statement = f"{'NOT ' if not val else ''}EXISTS {{ {statement} }}"
         else:
             place_holder = self._register_place_holder(ident + "_" + prop)
             if operator == _SPECIAL_OPERATOR_ARRAY_IN:
@@ -853,21 +910,22 @@ class QueryBuilder:
         source_class: type[StructuredNode],
     ) -> None:
         for prop, op_and_val in filters.items():
-            is_rel_filter = "|" in prop
-            target_class = source_class
-            is_optional_relation = False
-            if "__" in prop or is_rel_filter:
-                (
-                    ident,
-                    prop,
-                    target_class,
-                    is_optional_relation,
-                ) = self._parse_path(source_class, prop)
             operator, val = op_and_val
-            if not is_rel_filter:
-                prop = target_class.defined_properties(rels=False)[
-                    prop
-                ].get_db_property_name(prop)
+            is_optional_relation = False
+            if _SPECIAL_OPERATOR_EXISTS not in operator:
+                is_rel_filter = "|" in prop
+                target_class = source_class
+                if "__" in prop or is_rel_filter:
+                    (
+                        ident,
+                        prop,
+                        target_class,
+                        is_optional_relation,
+                    ) = self._parse_path(source_class, prop)
+                if not is_rel_filter:
+                    prop = target_class.defined_properties(rels=False)[
+                        prop
+                    ].get_db_property_name(prop)
             statement = self._finalize_filter_statement(operator, ident, prop, val)
             target.append((statement, is_optional_relation))
 
@@ -1003,9 +1061,16 @@ class QueryBuilder:
         if self._ast.vector_index_query:
             query += f"""CALL () {{ 
                 CALL db.index.vector.queryNodes("{self._ast.vector_index_query.index_name}", {self._ast.vector_index_query.topk}, {self._ast.vector_index_query.vector}) 
-                YIELD node AS {self._ast.vector_index_query.node_set_label}, score 
+                YIELD node AS {self._ast.vector_index_query.node_set_label}, score """
+
+            if self._ast.vector_index_query.threshold:
+                query += f"""
+                WHERE score >= {self._ast.vector_index_query.threshold}
+                """
+
+            query += f"""
                 RETURN {self._ast.vector_index_query.node_set_label}, score 
-                }}"""
+            }}"""
 
             # This ensures that we bring the context of the new nodeSet and score along with us for metadata filtering
             query += f""" WITH {self._ast.vector_index_query.node_set_label}, score"""
@@ -1013,9 +1078,16 @@ class QueryBuilder:
         if self._ast.fulltext_index_query:
             query += f"""CALL () {{
                 CALL db.index.fulltext.queryNodes("{self._ast.fulltext_index_query.index_name}", "{self._ast.fulltext_index_query.query_string}")
-                YIELD node AS {self._ast.fulltext_index_query.node_set_label}, score
+                YIELD node AS {self._ast.fulltext_index_query.node_set_label}, score"""
+
+            if self._ast.fulltext_index_query.threshold:
+                query += f"""
+                WHERE score >= {self._ast.fulltext_index_query.threshold}
+                """
+
+            query += f"""
                 RETURN {self._ast.fulltext_index_query.node_set_label}, score LIMIT {self._ast.fulltext_index_query.topk}
-                }}
+            }}
                 """
             # This ensures that we bring the context of the new nodeSet and score along with us for metadata filtering
             query += f""" WITH {self._ast.fulltext_index_query.node_set_label}, score"""
@@ -1194,25 +1266,87 @@ class QueryBuilder:
                         for item in self._ast.additional_return
                     ]
         query = self.build_query()
-        results, prop_names = db.cypher_query(
-            query,
-            self._query_params,
-            resolve_objects=True,
-        )
-        if dict_output:
-            for item in results:
-                yield dict(zip(prop_names, item))
-            return
-        # The following is not as elegant as it could be but had to be copied from the
-        # version prior to cypher_query with the resolve_objects capability.
-        # It seems that certain calls are only supposed to be focusing to the first
-        # result item returned (?)
-        if results and len(results[0]) == 1:
-            for n in results:
-                yield n[0]
+
+        # Use streaming for async code to avoid loading all results into memory
+        if Util.is_async_code:
+            # Helper to process streaming results
+            def process_stream(stream_iterator):
+                first_result = True
+                result_has_single_column = False
+                for values, prop_names in stream_iterator:
+                    if first_result:
+                        # Determine format on first result
+                        result_has_single_column = len(values) == 1
+                        first_result = False
+
+                    if dict_output:
+                        yield dict(zip(prop_names, values))
+                    elif result_has_single_column:
+                        yield values[0]
+                    else:
+                        yield values
+
+            # Stream results one by one from the database
+            if db._active_transaction:
+                # Use current transaction if active
+                stream = db._stream_cypher_query(
+                    db._active_transaction,
+                    query,
+                    self._query_params,
+                    handle_unique=True,
+                    resolve_objects=True,
+                )
+                for item in process_stream(stream):
+                    yield item
+            else:
+                # Create a session for streaming
+                # Note: We need to keep the session open during iteration
+                with db.driver.session(
+                    database=db._database_name,
+                    impersonated_user=db.impersonated_user,
+                ) as session:
+                    stream = db._stream_cypher_query(
+                        session,
+                        query,
+                        self._query_params,
+                        handle_unique=True,
+                        resolve_objects=True,
+                    )
+                    for item in process_stream(stream):
+                        yield item
         else:
-            for result in results:
-                yield result
+            # Sync code path: use traditional approach (fetch all results)
+            results, prop_names = db.cypher_query(
+                query,
+                self._query_params,
+                resolve_objects=True,
+            )
+            if dict_output:
+                for item in results:
+                    yield dict(zip(prop_names, item))
+                return
+            # The following is not as elegant as it could be but had to be copied from the
+            # version prior to cypher_query with the resolve_objects capability.
+            # It seems that certain calls are only supposed to be focusing to the first
+            # result item returned (?)
+            if results and len(results[0]) == 1:
+                for n in results:
+                    yield n[0]
+            else:
+                for result in results:
+                    yield result
+
+
+@dataclass
+class Path:
+    """Path traversal definition."""
+
+    value: str
+    optional: bool = False
+    include_nodes_in_return: bool = True
+    include_rels_in_return: bool = True
+    relation_filtering: bool = False
+    alias: str | None = None
 
 
 class BaseSet:
@@ -1224,6 +1358,10 @@ class BaseSet:
 
     query_cls = QueryBuilder
     source_class: type[StructuredNode]
+
+    # Attributes defined in subclasses (AsyncNodeSet)
+    _unique_variables: list[str]
+    relations_to_fetch: list[Path]
 
     def all(self, lazy: bool = False) -> list:
         """
@@ -1239,6 +1377,16 @@ class BaseSet:
         return results
 
     def __iter__(self) -> Iterator:
+        """
+        Async iterator that streams results from the database one at a time.
+
+        This provides true iteration without loading all results into memory first.
+        For large result sets, this is much more memory efficient than using all().
+
+        Example:
+            for node in Coffee.nodes:
+                print(node.name)  # Process each node as it arrives
+        """
         ast = self.query_cls(self).build_ast()
         for item in ast._execute():
             yield item
@@ -1294,18 +1442,6 @@ class BaseSet:
             ast = self.query_cls(self).build_ast()
             _first_item = [node for node in ast._execute()][0]
             return _first_item
-
-
-@dataclass
-class Path:
-    """Path traversal definition."""
-
-    value: str
-    optional: bool = False
-    include_nodes_in_return: bool = True
-    include_rels_in_return: bool = True
-    relation_filtering: bool = False
-    alias: str | None = None
 
 
 @dataclass
@@ -1625,6 +1761,9 @@ class NodeSet(BaseSet):
             self.q_filters = Q(self.q_filters & ~Q(*args, **kwargs))
         return self
 
+    @deprecated(
+        "This method is deprecated and set to be removed in a future release. Please use .filter(has_rel__exists=True) instead."
+    )
     def has(self, **kwargs: Any) -> "BaseSet":
         must_match, dont_match = process_has_args(self.source_class, kwargs)
         self.must_match.update(must_match)
