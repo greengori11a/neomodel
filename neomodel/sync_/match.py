@@ -2,7 +2,9 @@ import inspect
 import re
 import string
 from dataclasses import dataclass
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterable, Iterator, Union
+
+from typing_extensions import Self
 
 from neomodel._async_compat.util import Util
 from neomodel.exceptions import MultipleNodesReturned
@@ -1250,7 +1252,7 @@ class QueryBuilder:
             else:
                 # Create a session for streaming
                 # Note: We need to keep the session open during iteration
-                with db.driver.session(
+                with db.driver.session(  # type: ignore
                     database=db._database_name,
                     impersonated_user=db.impersonated_user,
                 ) as session:
@@ -1372,7 +1374,7 @@ class BaseSet:
 
         raise ValueError("Expecting StructuredNode instance")
 
-    def __getitem__(self, key: int | slice) -> Optional["BaseSet"]:
+    def __getitem__(self, key: int | slice) -> Self | StructuredNode:
         if isinstance(key, slice):
             if key.stop and key.start:
                 self.limit = key.stop - key.start
@@ -1384,13 +1386,12 @@ class BaseSet:
 
             return self
 
-        if isinstance(key, int):
-            self.skip = key
-            self.limit = 1
+        self.skip = key
+        self.limit = 1
 
-            ast = self.query_cls(self).build_ast()
-            _first_item = [node for node in ast._execute()][0]
-            return _first_item
+        ast = self.query_cls(self).build_ast()
+        _first_item = [node for node in ast._execute()][0]
+        return _first_item
 
 
 @dataclass
@@ -1581,7 +1582,7 @@ class NodeSet(BaseSet):
         results = [node for node in ast._execute(lazy)]
         return results
 
-    def get(self, lazy: bool = False, **kwargs: Any) -> Any:
+    def get(self, lazy: bool = False, **kwargs: Any) -> StructuredNode:
         """
         Retrieve one node from the set matching supplied parameters
         :param lazy: False by default, specify True to get nodes with id only without the parameters.
@@ -1595,7 +1596,7 @@ class NodeSet(BaseSet):
             raise self.source_class.DoesNotExist(repr(kwargs))
         return result[0]
 
-    def get_or_none(self, **kwargs: Any) -> Any:
+    def get_or_none(self, **kwargs: Any) -> StructuredNode | None:
         """
         Retrieve a node from the set matching supplied parameters or return none
 
@@ -1607,7 +1608,7 @@ class NodeSet(BaseSet):
         except self.source_class.DoesNotExist:
             return None
 
-    def first(self, **kwargs: Any) -> Any:
+    def first(self, **kwargs: Any) -> StructuredNode:
         """
         Retrieve the first node from the set matching supplied parameters
 
@@ -1620,7 +1621,7 @@ class NodeSet(BaseSet):
         else:
             raise self.source_class.DoesNotExist(repr(kwargs))
 
-    def first_or_none(self, **kwargs: Any) -> Any:
+    def first_or_none(self, **kwargs: Any) -> Self | None:
         """
         Retrieve the first node from the set matching supplied parameters or return none
 
@@ -1633,7 +1634,7 @@ class NodeSet(BaseSet):
             pass
         return None
 
-    def filter(self, *args: Any, **kwargs: Any) -> "BaseSet":
+    def filter(self, *args: Any, **kwargs: Any) -> Self:
         """
         Apply filters to the existing nodes in the set.
 
@@ -1699,7 +1700,7 @@ class NodeSet(BaseSet):
 
         return self
 
-    def exclude(self, *args: Any, **kwargs: Any) -> "BaseSet":
+    def exclude(self, *args: Any, **kwargs: Any) -> Self:
         """
         Exclude nodes from the NodeSet via filters.
 
@@ -1710,13 +1711,13 @@ class NodeSet(BaseSet):
             self.q_filters = Q(self.q_filters & ~Q(*args, **kwargs))
         return self
 
-    def has(self, **kwargs: Any) -> "BaseSet":
+    def has(self, **kwargs: Any) -> Self:
         must_match, dont_match = process_has_args(self.source_class, kwargs)
         self.must_match.update(must_match)
         self.dont_match.update(dont_match)
         return self
 
-    def order_by(self, *props: Any) -> "BaseSet":
+    def order_by(self, *props: Any) -> Self:
         """
         Order by properties. Prepend with minus to do descending. Pass None to
         remove ordering.
@@ -1762,12 +1763,12 @@ class NodeSet(BaseSet):
             item.alias = alias
         return item
 
-    def unique_variables(self, *paths: str) -> "NodeSet":
+    def unique_variables(self, *paths: str) -> Self:
         """Generate unique variable names for the given paths."""
         self._unique_variables = list(paths)
         return self
 
-    def traverse(self, *paths: tuple[str, ...], **aliased_paths: dict) -> "NodeSet":
+    def traverse(self, *paths: tuple[str, ...], **aliased_paths: dict) -> Self:
         """Specify a set of paths to traverse."""
         relations = []
         for path in paths:
@@ -1779,7 +1780,7 @@ class NodeSet(BaseSet):
         self.relations_to_fetch = relations
         return self
 
-    def annotate(self, *vars: tuple, **aliased_vars: tuple) -> "NodeSet":
+    def annotate(self, *vars: tuple, **aliased_vars: tuple) -> Self:
         """Annotate node set results with extra variables."""
 
         def register_extra_var(
@@ -1865,10 +1866,12 @@ class NodeSet(BaseSet):
 
     def subquery(
         self,
-        nodeset: "NodeSet",
+        nodeset: Self,
         return_set: list[str],
-        initial_context: list[str] | None = None,
-    ) -> "NodeSet":
+        initial_context: (
+            list[str | NodeNameResolver | RelationNameResolver | RawCypher] | None
+        ) = None,
+    ) -> Self:
         """Add a subquery to this node set.
 
         A subquery is a regular cypher query but executed within the context of a CALL
@@ -1897,9 +1900,9 @@ class NodeSet(BaseSet):
             ):
                 raise RuntimeError(f"Variable '{var}' is not returned by subquery.")
         if initial_context:
-            for var in initial_context:
-                if not isinstance(var, str) and not isinstance(
-                    var, (NodeNameResolver, RelationNameResolver, RawCypher)
+            for context_var in initial_context:
+                if not isinstance(context_var, str) and not isinstance(
+                    context_var, (NodeNameResolver, RelationNameResolver, RawCypher)
                 ):
                     raise ValueError(
                         f"Wrong variable specified in initial context, should be a string or an instance of NodeNameResolver or RelationNameResolver"
@@ -1919,7 +1922,7 @@ class NodeSet(BaseSet):
         vars: dict[str, Transformation],
         distinct: bool = False,
         ordering: list | None = None,
-    ) -> "NodeSet":
+    ) -> Self:
         if not vars:
             raise ValueError(
                 "You must provide one variable at least when calling intermediate_transform()"
@@ -1995,7 +1998,7 @@ class Traversal(BaseSet):
         self.name = name
         self.filters: list = []
 
-    def match(self, **kwargs: Any) -> "Traversal":
+    def match(self, **kwargs: dict[str, Any]) -> "Traversal":
         """
         Traverse relationships with properties matching the given parameters.
 

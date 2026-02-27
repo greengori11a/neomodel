@@ -44,7 +44,7 @@ def is_direct_subclass(obj: Any, classinfo: Any) -> bool:
     return False
 
 
-class RelationshipManager(object):
+class RelationshipManager:
     """
     Base class for all relationships managed through neomodel.
 
@@ -332,7 +332,7 @@ class RelationshipManager(object):
         return Traversal(self.source, self.name, self.definition)
 
     # The methods below simply proxy the match engine.
-    def get(self, **kwargs: Any) -> NodeSet:
+    def get(self, **kwargs: Any):
         """
         Retrieve a related node with the matching node properties.
 
@@ -341,7 +341,7 @@ class RelationshipManager(object):
         """
         return NodeSet(self._new_traversal()).get(**kwargs)
 
-    def get_or_none(self, **kwargs: dict) -> NodeSet:
+    def get_or_none(self, **kwargs: dict):
         """
         Retrieve a related node with the matching node properties or return None.
 
@@ -399,7 +399,7 @@ class RelationshipManager(object):
         except IndexError:
             return None
 
-    def match(self, **kwargs: dict) -> NodeSet:
+    def match(self, **kwargs: Any) -> NodeSet:
         """
         Return set of nodes who's relationship properties match supplied args
 
@@ -439,7 +439,7 @@ class RelationshipDefinition:
     def __init__(
         self,
         relation_type: str,
-        cls_name: str,
+        cls_name: str | type,
         direction: int,
         manager: type[RelationshipManager] = RelationshipManager,
         model: type[StructuredRel] | None = None,
