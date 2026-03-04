@@ -26,7 +26,6 @@ from neomodel.sync_.match import (
     Last,
     NodeNameResolver,
     NodeSet,
-    Optional,
     Path,
     QueryBuilder,
     RawCypher,

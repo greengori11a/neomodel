@@ -27,7 +27,6 @@ from neomodel.async_.match import (
     Collect,
     Last,
     NodeNameResolver,
-    Optional,
     Path,
     RawCypher,
     RelationNameResolver,
