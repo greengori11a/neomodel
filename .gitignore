@@ -25,4 +25,5 @@ coverage_report/
 cov.xml
 test/data/model_diagram.*
 .claude/*
-CLAUDE.md
+AGENTS.md
+uv.lock
