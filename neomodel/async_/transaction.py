@@ -128,13 +128,9 @@ class ImpersonationHandler:
     ) -> None:
         self.db.impersonated_user = None
 
-        print("\nException type:", exception_type)
-        print("\nException value:", exception_value)
-        print("\nTraceback:", exception_traceback)
-
     def __call__(self, func: Callable) -> Callable:
-        def wrapper(*args: Any, **kwargs: Any) -> Callable:
+        async def wrapper(*args: Any, **kwargs: Any) -> Callable:
             with self:
-                return func(*args, **kwargs)
+                return await func(*args, **kwargs)
 
         return wrapper
